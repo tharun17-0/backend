@@ -4,43 +4,32 @@ from pydantic import BaseModel
 app = FastAPI()
 
 
-# In-memory task list
 tasks = [
     {"id": 1, "title": "Learn FastAPI", "done": False},
     {"id": 2, "title": "Build CRUD API", "done": False},
     {"id": 3, "title": "Practice Git", "done": True}
 ]
 
-
-# Model for creating a task
 class TaskCreate(BaseModel):
     title: str
 
 
-# Model for updating a task
 class TaskUpdate(BaseModel):
     title: str
     done: bool
 
 
 # Root endpoint
-@app.get("/")
+@app.get("/", summary="Get API information")
 def root():
-    return {
-        "name": "Task API",
+    return {    
+        "name": "Task API",     
         "version": "1.0",
         "endpoints": ["/tasks"]
     }
 
-
-# Health endpoint
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
 # GET all tasks
-@app.get("/tasks")
+@app.get("/tasks", summary="Get API information")
 def get_tasks():
     return tasks
 
