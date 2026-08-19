@@ -1,14 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from database import init_db, get_connection
 
 app = FastAPI()
+init_db()
 
-
-tasks = [
-    {"id": 1, "title": "Learn FastAPI", "done": False},
-    {"id": 2, "title": "Build CRUD API", "done": False},
-    {"id": 3, "title": "Practice Git", "done": True}
-]
+tasks = []
 
 class TaskCreate(BaseModel):
     title: str
@@ -29,9 +26,17 @@ def root():
     }
 
 # GET all tasks
-@app.get("/tasks", summary="Get API information")
+@app.get("/tasks", summary="Get all tasks")
 def get_tasks():
-    return tasks
+    connection = get_connection()
+
+    rows = connection.execute(
+        "SELECT * FROM tasks"
+    ).fetchall()
+
+    connection.close()
+
+    return [dict(row) for row in rows]
 
 
 # GET one task
