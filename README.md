@@ -1,23 +1,34 @@
 # Task API
 
-A simple REST API for managing a to-do list, built with Python and FastAPI.
+## Description
 
-This project implements the four CRUD operations:
-
-- Create tasks
-- Read tasks
-- Update tasks
-- Delete tasks
-
-The API currently uses in-memory storage, so tasks are reset whenever the server restarts.
+A CRUD Task API built using FastAPI and SQLite.
 
 ## Technologies
 
-- Python 3.10+
+- Python
 - FastAPI
+- SQLite
+- sqlite3
 - Uvicorn
-- Pydantic
-- Swagger UI
+
+## Database
+
+The application uses SQLite.
+
+The database file is:
+tasks.db
+
+The database and tasks table are automatically
+created when the application starts.
+
+## Run
+
+uvicorn main:app --reload
+
+## Swagger
+
+http://localhost:8000/docs
 
 ## Installation
 
