@@ -1,39 +1,22 @@
 # Task API
 
-## Description
+A FastAPI CRUD application using PostgreSQL running in Docker.
 
-A CRUD Task API built using FastAPI and SQLite.
+## Architecture
 
-## Technologies
+The application separates the API layer from database access.
 
-- Python
-- FastAPI
-- SQLite
-- sqlite3
-- Uvicorn
+```text
+Routes → TaskRepository → PostgreSQL
 
-## Database
+Running the Application
 
-The application uses SQLite.
+docker compose up --build
 
-The database file is:
-tasks.db
+The API is available at:
 
-The database and tasks table are automatically
-created when the application starts.
+http://localhost:8000
 
-## Run
-
-uvicorn main:app --reload
-
-## Swagger
+Swagger documentation:
 
 http://localhost:8000/docs
-
-## Installation
-
-Clone the repository:
-
-```bash
-git clone https://github.com/tharun17-0/backend.git
-cd backend
