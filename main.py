@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from supabase_client import supabase
 
 from repositories.task_repository import TaskRepository
 
@@ -10,6 +11,10 @@ app = FastAPI()
 
 repository = TaskRepository()
 
+app = FastAPI(
+    title="Task Auth API",
+    version="1.0"
+)
 
 class TaskCreate(BaseModel):
     title: str
