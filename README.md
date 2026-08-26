@@ -247,3 +247,5 @@ An invalid or expired token returns:
 * `.env` is excluded from Git.
 * Supabase credentials must never be committed to the repository.
 * Protected routes use a reusable authentication dependency.
+
+![Project Screenshot](image.png)
