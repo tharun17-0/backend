@@ -1,20 +1,25 @@
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from supabase_client import supabase
 
+from supabase_client import supabase
 from repositories.task_repository import TaskRepository
+
 
 load_dotenv()
 
-app = FastAPI()
-
-repository = TaskRepository()
 
 app = FastAPI(
     title="Task Auth API",
     version="1.0"
 )
+
+repository = TaskRepository()
+
+
+# =========================
+# Request Models
+# =========================
 
 class TaskCreate(BaseModel):
     title: str
@@ -25,23 +30,115 @@ class TaskUpdate(BaseModel):
     done: bool
 
 
-# Root endpoint
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+
+
+# =========================
+# Root Endpoint
+# =========================
+
 @app.get("/", summary="Get API information")
 def root():
     return {
-        "name": "Task API",
+        "name": "Task Auth API",
         "version": "1.0",
-        "endpoints": ["/tasks"]
+        "endpoints": [
+            "/tasks",
+            "/auth/signup",
+            "/auth/login"
+        ]
     }
 
 
-# GET all tasks
+# =========================
+# Authentication
+# =========================
+
+@app.post("/auth/signup", status_code=201)
+def signup(auth: AuthRequest):
+
+    if not auth.email.strip() or not auth.password.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Email and password are required"
+        )
+
+    try:
+        response = supabase.auth.sign_up({
+            "email": auth.email,
+            "password": auth.password
+        })
+
+        print("SUPABASE SIGNUP RESPONSE:", response)
+
+        if response.user is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Unable to create user"
+            )
+
+        return {
+            "user": response.user
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        print("SUPABASE SIGNUP ERROR:", repr(e))
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+
+@app.post("/auth/login")
+def login(auth: AuthRequest):
+
+    if not auth.email.strip() or not auth.password.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Email and password are required"
+        )
+
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": auth.email,
+            "password": auth.password
+        })
+
+        if response.session is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid login credentials"
+            )
+
+        return {
+            "access_token": response.session.access_token,
+            "refresh_token": response.session.refresh_token
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid login credentials"
+        )
+
+
+# =========================
+# Tasks
+# =========================
+
 @app.get("/tasks", summary="Get all tasks")
 def get_tasks():
     return repository.get_all()
 
 
-# GET one task
 @app.get("/tasks/{task_id}", summary="Get a task by ID")
 def get_task(task_id: int):
 
@@ -56,7 +153,6 @@ def get_task(task_id: int):
     return task
 
 
-# POST - create a task
 @app.post("/tasks", status_code=201)
 def create_task(task: TaskCreate):
 
@@ -69,7 +165,6 @@ def create_task(task: TaskCreate):
     return repository.create(task.title)
 
 
-# PUT - update a task
 @app.put("/tasks/{task_id}")
 def update_task(task_id: int, task: TaskUpdate):
 
@@ -96,7 +191,6 @@ def update_task(task_id: int, task: TaskUpdate):
     return updated
 
 
-# DELETE - delete a task
 @app.delete("/tasks/{task_id}", status_code=204)
 def delete_task(task_id: int):
 
