@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Response, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from auth import get_current_user
@@ -13,7 +14,7 @@ app = FastAPI(
     title="Task Auth API",
     version="1.0"
 )
-
+security = HTTPBearer()
 repository = TaskRepository()
 
 

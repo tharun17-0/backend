@@ -20,3 +20,5 @@ http://localhost:8000
 Swagger documentation:
 
 http://localhost:8000/docs
+
+![alt text](image.png)
