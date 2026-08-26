@@ -219,18 +219,21 @@ def protected_profile(
     authorization: str | None = Header(default=None)
 ):
 
+    # Check Authorization header
     if not authorization:
         raise HTTPException(
             status_code=401,
             detail="Access token required"
         )
 
+    # Check Bearer format
     if not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
             detail="Access token required"
         )
 
+    # Extract token
     token = authorization.replace("Bearer ", "", 1).strip()
 
     if not token:
@@ -239,7 +242,29 @@ def protected_profile(
             detail="Access token required"
         )
 
-    return {
-        "message": "Protected route reached",
-        "token_received": True
-    }
+    # Verify token with Supabase
+    try:
+        response = supabase.auth.get_user(token)
+
+        user = response.user
+
+        if user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired token"
+            )
+
+        return {
+            "id": user.id,
+            "email": user.email,
+            "created_at": user.created_at
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token"
+        )
