@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Header
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -203,3 +203,43 @@ def delete_task(task_id: int):
         )
 
     return Response(status_code=204)
+
+# =========================
+# Public & Protected Routes
+# =========================
+
+@app.get("/public/info")
+def public_info():
+    return {
+        "message": "Welcome stranger! This info is public."
+    }
+
+@app.get("/protected/profile")
+def protected_profile(
+    authorization: str | None = Header(default=None)
+):
+
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Access token required"
+        )
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Access token required"
+        )
+
+    token = authorization.replace("Bearer ", "", 1).strip()
+
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Access token required"
+        )
+
+    return {
+        "message": "Protected route reached",
+        "token_received": True
+    }
