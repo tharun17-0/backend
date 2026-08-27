@@ -1,15 +1,24 @@
 from pathlib import Path
 from urllib.parse import urljoin
 from datetime import datetime, timezone
+import json
+import re
 import time
 
 import requests
 from bs4 import BeautifulSoup
+from pydantic import BaseModel, ConfigDict, HttpUrl
 
 
 BASE_URL = "https://books.toscrape.com/"
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / "cache"
+
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
+
+BOOKS_FILE = OUTPUT_DIR / "books.json"
+
+ERRORS_FILE = OUTPUT_DIR / "errors.json"
 
 USER_AGENT = "FlyRankInternship-A9/1.0"
 
@@ -376,6 +385,171 @@ def scrape_books(pages, book_urls):
 
     return records
 
+class BookRecord(BaseModel):
+
+    model_config = ConfigDict(
+        extra="forbid"
+    )
+
+    title: str
+    product_url: HttpUrl
+
+    price_text: str
+    price_gbp: float
+
+    availability_text: str
+    availability: str
+    stock_count: int | None
+
+    rating_text: str
+    rating: int
+
+    description: str | None
+
+    source_page: HttpUrl
+    fetched_at: datetime
+
+def normalize_availability(
+    availability_text: str
+):
+    text = availability_text.strip()
+
+    match = re.search(
+        r"\((\d+)\s+available\)",
+        text,
+        re.IGNORECASE
+    )
+
+    stock_count = None
+
+    if match:
+        stock_count = int(
+            match.group(1)
+        )
+
+    if text.lower().startswith("in stock"):
+        availability = "In stock"
+
+    elif text.lower().startswith("out of stock"):
+        availability = "Out of stock"
+
+    else:
+        availability = text
+
+    return availability, stock_count
+
+def normalize_record(raw_record: dict) -> dict:
+
+    price_gbp = normalize_price(
+        raw_record["price_text"]
+    )
+
+    rating = normalize_rating(
+        raw_record["rating_text"]
+    )
+
+    availability, stock_count = normalize_availability(
+        raw_record["availability_text"]
+    )
+
+    return {
+        "title": raw_record["title"],
+        "product_url": raw_record["product_url"],
+
+        "price_text": raw_record["price_text"],
+        "price_gbp": price_gbp,
+
+        "availability_text": raw_record["availability_text"],
+        "availability": availability,
+        "stock_count": stock_count,
+
+        "rating_text": raw_record["rating_text"],
+        "rating": rating,
+
+        "description": raw_record["description"],
+
+        "source_page": raw_record["source_page"],
+        "fetched_at": raw_record["fetched_at"]
+    }
+
+def validate_record(raw_record: dict):
+
+    try:
+        normalized = normalize_record(
+            raw_record
+        )
+        validated = BookRecord.model_validate(
+            normalized
+        )
+        return validated, None
+
+    except Exception as exc:
+
+        return None, str(exc)
+
+def normalize_price(price_text: str) -> float:
+
+    cleaned = price_text.replace("£", "").strip()
+
+    return float(cleaned)
+def normalize_rating(rating_text: str) -> int:
+
+    rating_map = {
+        "One": 1,
+        "Two": 2,
+        "Three": 3,
+        "Four": 4,
+        "Five": 5
+    }
+
+    if rating_text not in rating_map:
+        raise ValueError(
+            f"Unknown rating: {rating_text}"
+        )
+
+    return rating_map[rating_text]
+def write_json(
+    path: Path,
+    data
+):
+
+    OUTPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    with path.open(
+        "w",
+        encoding="utf-8"
+    ) as file:
+
+        json.dump(
+            data,
+            file,
+            indent=2,
+            ensure_ascii=False
+        )
+def save_valid_records(
+    valid_records
+):
+
+    data = [
+        record.model_dump(
+            mode="json"
+        )
+        for record in valid_records
+    ]
+
+    write_json(
+        BOOKS_FILE,
+        data
+    )
+def save_errors(errors):
+
+    write_json(
+        ERRORS_FILE,
+        errors
+    )
 
 def main():
 
@@ -409,24 +583,78 @@ def main():
     print()
     print("Starting book extraction...")
 
-    records = scrape_books(
+    raw_records = scrape_books(
         pages,
         book_urls
     )
 
     print()
     print(
-        f"RAW RECORDS: {len(records)}"
+        f"RAW RECORDS: {len(raw_records)}"
     )
 
-    if len(records) != 60:
-        raise RuntimeError(
-            f"Expected 60 records, "
-            f"got {len(records)}"
+    valid_records = []
+
+    errors = []
+
+    for raw_record in raw_records:
+
+        record, error = validate_record(
+            raw_record
         )
 
+        if record is not None:
+
+            valid_records.append(
+                record
+            )
+
+        else:
+
+            errors.append(
+                {
+                    "product_url": raw_record.get(
+                        "product_url"
+                    ),
+                    "reason": error
+                }
+            )
+
+    save_valid_records(
+        valid_records
+    )
+
+    save_errors(
+        errors
+    )
+
+    print()
     print(
-        "STAGE 3 CHECKPOINT PASSED"
+        f"VALID RECORDS: {len(valid_records)}"
+    )
+
+    print(
+        f"INVALID RECORDS: {len(errors)}"
+    )
+
+    print(
+        f"WROTE: {BOOKS_FILE}"
+    )
+
+    print(
+        f"WROTE: {ERRORS_FILE}"
+    )
+
+    if len(valid_records) != 60:
+
+        raise RuntimeError(
+            f"Expected 60 valid records, "
+            f"got {len(valid_records)}"
+        )
+
+    print()
+    print(
+        "STAGE 4 CHECKPOINT PASSED"
     )
 
 
