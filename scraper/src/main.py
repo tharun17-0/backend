@@ -22,6 +22,8 @@ ERRORS_FILE = OUTPUT_DIR / "errors.json"
 
 USER_AGENT = "FlyRankInternship-A9/1.0"
 
+TEST_BROKEN_URL = None
+
 HEADERS = {
     "User-Agent": USER_AGENT
 }
@@ -336,55 +338,186 @@ def extract_book(
         "source_page": source_page,
         "fetched_at": fetched_at
     }
+def extract_book_record(soup, book_url):
+    """
+    Extract raw book data from one Books to Scrape page.
+    """
 
+    title_tag = soup.select_one(
+        "div.product_main h1"
+    )
 
-def scrape_books(pages, book_urls):
+    if title_tag is None:
+        raise ValueError("Title not found")
+
+    title = title_tag.get_text(
+        strip=True
+    )
+
+    price_tag = soup.select_one(
+        "div.product_main .price_color"
+    )
+
+    if price_tag is None:
+        raise ValueError("Price not found")
+
+    price_text = price_tag.get_text(
+        strip=True
+    )
+
+    availability_tag = soup.select_one(
+        "div.product_main .availability"
+    )
+
+    if availability_tag is None:
+        raise ValueError(
+            "Availability not found"
+        )
+
+    availability_text = availability_tag.get_text(
+        " ",
+        strip=True
+    )
+
+    rating_tag = soup.select_one(
+        "div.product_main .star-rating"
+    )
+
+    if rating_tag is None:
+        raise ValueError(
+            "Rating not found"
+        )
+
+    classes = rating_tag.get(
+        "class",
+        []
+    )
+
+    rating_text = next(
+        (
+            value
+            for value in classes
+            if value in {
+                "One",
+                "Two",
+                "Three",
+                "Four",
+                "Five"
+            }
+        ),
+        None
+    )
+
+    if rating_text is None:
+        raise ValueError(
+            "Unknown rating"
+        )
+
+    description_tag = soup.select_one(
+        "#product_description + p"
+    )
+
+    description = None
+
+    if description_tag is not None:
+        description = description_tag.get_text(
+            " ",
+            strip=True
+        )
+
+    return {
+        "title": title,
+        "product_url": book_url,
+        "price_text": price_text,
+        "availability_text": availability_text,
+        "rating_text": rating_text,
+        "description": description,
+        "source_page": BASE_URL,
+        "fetched_at": datetime.now(
+            timezone.utc
+        )
+    }
+
+def scrape_books(
+    pages,
+    book_urls
+):
 
     records = []
+    errors = []
+
+    total = len(book_urls)
 
     for index, book_url in enumerate(
         book_urls,
         start=1
     ):
 
-        cache_file = get_book_cache_file(
-            index
-        )
+        current_url = book_url
 
-        source_page = find_source_page(
-            book_url,
-            pages
-        )
+        # Deliberate failure testing
+        if (
+            TEST_BROKEN_URL is not None
+            and index == 1
+        ):
+            current_url = (
+                "https://books.toscrape.com/"
+                "catalogue/"
+                "this-page-does-not-exist-999/"
+            )
 
-        html = fetch_url(
-            book_url,
-            cache_file
+        print(
+            f"BOOK {index}/{total}: "
+            f"{book_url}"
         )
 
         try:
 
-            record = extract_book(
-                html,
-                book_url,
-                source_page
+            html = fetch_book_with_retry(
+                current_url
             )
 
-            records.append(record)
+            soup = BeautifulSoup(
+                html,
+                "html.parser"
+            )
+
+            record = extract_book_record(
+                soup,
+                book_url
+            )
+
+            records.append(
+                record
+            )
 
             print(
-                f"BOOK {index}/60: "
-                f"{record['title']}"
+                f"  OK: {record['title']}"
             )
 
         except Exception as exc:
 
             print(
-                f"ERROR BOOK {index}/60: "
-                f"{book_url}: {exc}"
+                f"  FAILED: {book_url}"
             )
 
-    return records
+            print(
+                f"  REASON: {exc}"
+            )
 
+            errors.append(
+                {
+                    "product_url": book_url,
+                    "reason": str(exc)
+                }
+            )
+
+        # Polite delay between requests
+        time.sleep(
+            REQUEST_DELAY
+        )
+
+    return records, errors
 class BookRecord(BaseModel):
 
     model_config = ConfigDict(
@@ -475,21 +608,62 @@ def normalize_record(raw_record: dict) -> dict:
 def validate_record(raw_record: dict):
 
     try:
+
         normalized = normalize_record(
             raw_record
         )
+
         validated = BookRecord.model_validate(
             normalized
         )
+
         return validated, None
 
     except Exception as exc:
 
+        print(
+            f"VALIDATION ERROR: {exc}"
+        )
+
         return None, str(exc)
 
 def normalize_price(price_text: str) -> float:
+    """
+    Convert price text such as:
+        £51.77
+        Â£51.77
+        Â51.77
 
-    cleaned = price_text.replace("£", "").strip()
+    into:
+        51.77
+    """
+
+    if not price_text:
+        raise ValueError(
+            "Price is empty"
+        )
+
+    cleaned = price_text.strip()
+
+    # Handle UTF-8/Latin-1 encoding artifact
+    cleaned = cleaned.replace(
+        "Â£",
+        "£"
+    )
+
+    cleaned = cleaned.replace(
+        "Â",
+        ""
+    )
+
+    # Remove currency symbol
+    cleaned = cleaned.replace(
+        "£",
+        ""
+    )
+
+    # Remove any remaining whitespace
+    cleaned = cleaned.strip()
 
     return float(cleaned)
 def normalize_rating(rating_text: str) -> int:
@@ -550,6 +724,77 @@ def save_errors(errors):
         ERRORS_FILE,
         errors
     )
+def fetch_book_with_retry(book_url: str):
+
+    for attempt in range(2):
+
+        try:
+
+            response = requests.get(
+                book_url,
+                headers=HEADERS,
+                timeout=10
+            )
+
+            # Retry 5xx exactly once
+            if 500 <= response.status_code <= 599:
+
+                if attempt == 0:
+
+                    print(
+                        f"RETRY 5xx: {book_url}"
+                    )
+
+                    time.sleep(
+                        REQUEST_DELAY
+                    )
+
+                    continue
+
+                response.raise_for_status()
+
+            # 4xx is not retried
+            response.raise_for_status()
+
+            return response.text
+
+        except requests.Timeout:
+
+            if attempt == 0:
+
+                print(
+                    f"RETRY TIMEOUT: {book_url}"
+                )
+
+                time.sleep(
+                    REQUEST_DELAY
+                )
+
+                continue
+
+            raise
+
+    raise RuntimeError(
+        f"Failed to fetch {book_url}"
+    )
+def save_run_report(
+    total_discovered,
+    successful,
+    failed,
+    errors
+):
+
+    report = {
+        "total_discovered": total_discovered,
+        "successful": successful,
+        "failed": failed,
+        "errors": errors
+    }
+
+    write_json(
+        OUTPUT_DIR / "run-report.json",
+        report
+    )
 
 def main():
 
@@ -583,7 +828,7 @@ def main():
     print()
     print("Starting book extraction...")
 
-    raw_records = scrape_books(
+    raw_records, scrape_errors = scrape_books(
         pages,
         book_urls
     )
@@ -594,8 +839,7 @@ def main():
     )
 
     valid_records = []
-
-    errors = []
+    errors = list(scrape_errors)
 
     for raw_record in raw_records:
 
@@ -619,6 +863,13 @@ def main():
                     "reason": error
                 }
             )
+
+    save_run_report(
+        total_discovered=len(book_urls),
+        successful=len(valid_records),
+        failed=len(errors),
+        errors=errors
+    )
 
     save_valid_records(
         valid_records
@@ -645,18 +896,17 @@ def main():
         f"WROTE: {ERRORS_FILE}"
     )
 
-    if len(valid_records) != 60:
+    if len(valid_records) + len(errors) != 60:
 
         raise RuntimeError(
-            f"Expected 60 valid records, "
-            f"got {len(valid_records)}"
+            "Processed count does not equal "
+            "60"
         )
 
     print()
     print(
         "STAGE 4 CHECKPOINT PASSED"
     )
-
 
 if __name__ == "__main__":
     main()
